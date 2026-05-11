@@ -1,0 +1,173 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from collections import Counter
+from datetime import datetime, timedelta
+import random
+
+# Фиксируем random seed для воспроизводимости
+random.seed(42)
+np.random.seed(42)
+
+print("="*60)
+print("ЛАБОРАТОРНАЯ РАБОТА №5 - ПОИСК ПОСЛЕДОВАТЕЛЬНЫХ ШАБЛОНОВ")
+print("="*60)
+
+# ============================================
+# 1. СОЗДАНИЕ СИНТЕТИЧЕСКИХ ДАННЫХ
+# ============================================
+print("\n1. СОЗДАНИЕ ДАННЫХ...")
+
+n_customers = 200
+n_transactions = 5000
+items = [f'item_{i}' for i in range(1, 11)]  # 10 товаров
+
+data = []
+for customer_id in range(1, n_customers + 1):
+    n_trans = random.randint(1, 10)
+    dates = [datetime(2020,1,1) + timedelta(days=random.randint(1, 100)) for _ in range(n_trans)]
+    dates.sort()
+    for date in dates:
+        n_items = random.randint(1, 3)
+        trans_items = random.sample(items, n_items)
+        for item in trans_items:
+            data.append([customer_id, date, item])
+
+df = pd.DataFrame(data, columns=['CustomerID', 'InvoiceDate', 'StockCode'])
+print(f"Создано {len(df)} записей, {df['CustomerID'].nunique()} клиентов, {df['StockCode'].nunique()} товаров")
+
+# ============================================
+# 2. ПРЕОБРАЗОВАНИЕ В ПОСЛЕДОВАТЕЛЬНОСТИ
+# ============================================
+print("\n2. ПРЕОБРАЗОВАНИЕ В ПОСЛЕДОВАТЕЛЬНОСТИ...")
+
+df_sorted = df.sort_values(['CustomerID', 'InvoiceDate'])
+sequences = []
+
+for customer_id, group in df_sorted.groupby('CustomerID'):
+    seq = []
+    for date, trans_group in group.groupby(group['InvoiceDate'].dt.date):
+        items_set = tuple(sorted(trans_group['StockCode'].unique()))
+        if items_set:
+            seq.append(items_set)
+    if seq:
+        sequences.append(seq)
+
+print(f"Создано {len(sequences)} последовательностей клиентов")
+
+# ============================================
+# 3. ФУНКЦИИ APRIORIALL
+# ============================================
+print("\n3. РЕАЛИЗАЦИЯ APRIORIALL...")
+
+def count_support(seq, sequences):
+    """Считает поддержку последовательности"""
+    seq_len = len(seq)
+    count = 0
+    for client_seq in sequences:
+        pos = 0
+        for trans in client_seq:
+            if pos < seq_len and set(seq[pos]).issubset(set(trans)):
+                pos += 1
+                if pos == seq_len:
+                    break
+        if pos == seq_len:
+            count += 1
+    return count
+
+def apriori_all_gen(freq, k):
+    """Генерация кандидатов"""
+    candidates = []
+    items = list(freq.keys())
+    for i in range(len(items)):
+        for j in range(len(items)):
+            if i == j:
+                continue
+            s1 = items[i]
+            s2 = items[j]
+            if len(s1) == k-1 and len(s2) == k-1 and s1[1:] == s2[:-1]:
+                new_seq = s1 + (s2[-1],)
+                if new_seq not in candidates:
+                    candidates.append(new_seq)
+    return candidates
+
+def apriori_all(sequences, min_support):
+    """Поиск частых последовательностей"""
+    n_clients = len(sequences)
+    min_count = int(min_support * n_clients)
+    
+    # Длина 1
+    item_counts = Counter()
+    for seq in sequences:
+        items_in_client = set()
+        for trans in seq:
+            items_in_client.update(trans)
+        for item in items_in_client:
+            item_counts[item] += 1
+    
+    freq = {}
+    for item, cnt in item_counts.items():
+        if cnt >= min_count:
+            freq[((item,),)] = cnt / n_clients
+    
+    print(f"  Длина 1: {len(freq)} частых наборов")
+    
+    k = 2
+    while True:
+        candidates = apriori_all_gen(freq, k)
+        if not candidates:
+            break
+        new_freq = {}
+        for cand in candidates:
+            sup = count_support(cand, sequences)
+            if sup >= min_count:
+                new_freq[cand] = sup / n_clients
+        if not new_freq:
+            break
+        print(f"  Длина {k}: {len(new_freq)} частых последовательностей")
+        freq.update(new_freq)
+        k += 1
+    
+    return freq
+
+# ============================================
+# 4. ЗАПУСК APRIORIALL
+# ============================================
+print("\n4. ЗАПУСК APRIORIALL...")
+min_support = 0.05
+freq_seqs = apriori_all(sequences, min_support)
+print(f"\nВсего найдено: {len(freq_seqs)} частых последовательностей")
+
+print("\n5 ПРИМЕРОВ ЧАСТЫХ ПОСЛЕДОВАТЕЛЬНОСТЕЙ:")
+for i, (seq, sup) in enumerate(list(freq_seqs.items())[:5]):
+    readable = ' → '.join([f"{{{','.join(items)}}}" for items in seq])
+    print(f"  {readable}: support = {sup:.3f}")
+
+# ============================================
+# 5. ЗАВИСИМОСТЬ ОТ MIN_SUPPORT (ГРАФИК)
+# ============================================
+print("\n5. ВЛИЯНИЕ MIN_SUPPORT НА КОЛИЧЕСТВО ШАБЛОНОВ...")
+support_values = [0.02, 0.03, 0.05, 0.07, 0.10]
+counts = []
+
+for min_sup in support_values:
+    freq = apriori_all(sequences, min_sup)
+    counts.append(len(freq))
+    print(f"  min_support = {min_sup:.0%}: {len(freq)} шаблонов")
+
+plt.figure(figsize=(8,5))
+plt.plot([s*100 for s in support_values], counts, marker='o', linewidth=2)
+plt.xlabel('min_support (%)')
+plt.ylabel('Количество шаблонов')
+plt.title('Зависимость количества паттернов от min_support')
+plt.grid(True)
+plt.savefig('dependency.png')
+plt.show()
+print("  График сохранён как dependency.png")
+
+print("\n" + "="*60)
+print("ЛАБОРАТОРНАЯ РАБОТА ВЫПОЛНЕНА УСПЕШНО!")
+print("="*60)
+
+
+
